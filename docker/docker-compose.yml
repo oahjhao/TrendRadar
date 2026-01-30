@@ -1,6 +1,6 @@
 services:
   trend-radar:
-    image: wantcat/trendradar:latest
+    image: trend-radar:latest
     container_name: trend-radar
     restart: unless-stopped
 
@@ -67,7 +67,7 @@ services:
       - PULL_ENABLED=${PULL_ENABLED:-false}
       - PULL_DAYS=${PULL_DAYS:-7}
       # 运行模式
-      - CRON_SCHEDULE=${CRON_SCHEDULE:-*/5 * * * *}
+      - CRON_SCHEDULE=${CRON_SCHEDULE:-15 8,12,16,20 * * *}
       - RUN_MODE=${RUN_MODE:-cron}
       - IMMEDIATE_RUN=${IMMEDIATE_RUN:-true}
 
