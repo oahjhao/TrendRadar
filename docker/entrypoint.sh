@@ -43,6 +43,7 @@ case "${RUN_MODE:-cron}" in
     echo "🎯 supercronic 将作为 PID 1 运行"
 
     exec /usr/local/bin/supercronic -passthrough-logs /tmp/crontab
+    exec /usr/local/bin/python -m trendradar
     ;;
 *)
     exec "$@"
