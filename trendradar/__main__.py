@@ -4,9 +4,13 @@ TrendRadar 主程序
 
 热点新闻聚合与分析工具
 支持: python -m trendradar
+支持命令行参数: python -m trendradar --keywords "AI,区块链,科技"
+支持环境变量: TRENDRADAR_KEYWORDS="AI,区块链,科技"
 """
 
 import os
+import sys
+import argparse
 import webbrowser
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
@@ -99,7 +103,7 @@ class NewsAnalyzer:
         },
     }
 
-    def __init__(self):
+    def __init__(self, keywords: Optional[str] = None):
         # 加载配置
         print("正在加载配置...")
         config = load_config()
@@ -109,6 +113,17 @@ class NewsAnalyzer:
 
         # 创建应用上下文
         self.ctx = AppContext(config)
+        
+        # 处理关键词参数（命令行参数或环境变量）
+        self.keywords = keywords
+        if not self.keywords:
+            # 从环境变量获取
+            self.keywords = os.environ.get("TRENDRADAR_KEYWORDS")
+        
+        if self.keywords:
+            print(f"使用关键词过滤: {self.keywords}")
+            # 将关键词保存到临时文件或内存中供后续使用
+            self._setup_keywords_filter()
 
         self.request_interval = self.ctx.config["REQUEST_INTERVAL"]
         self.report_mode = self.ctx.config["REPORT_MODE"]
@@ -167,6 +182,39 @@ class NewsAnalyzer:
             print("本地环境，未启用代理")
         else:
             print("GitHub Actions环境，不使用代理")
+    
+    def _setup_keywords_filter(self) -> None:
+        """设置关键词过滤器"""
+        if not self.keywords:
+            return
+            
+        # 解析关键词（支持逗号、空格分隔）
+        import re
+        keywords_list = []
+        for kw in re.split(r'[,，\s]+', self.keywords):
+            kw = kw.strip()
+            if kw:
+                keywords_list.append(kw)
+        
+        if keywords_list:
+            print(f"解析到 {len(keywords_list)} 个关键词: {', '.join(keywords_list)}")
+            
+            # 创建临时频率词文件
+            import tempfile
+            temp_freq_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+            
+            # 写入关键词，每个关键词作为一个独立的词群
+            for i, keyword in enumerate(keywords_list, 1):
+                temp_freq_file.write(f"# 关键词组 {i}: {keyword}\n")
+                temp_freq_file.write(f"{keyword}\n")
+                temp_freq_file.write("\n")
+            
+            temp_freq_file.close()
+            self.temp_freq_file_path = temp_freq_file.name
+            print(f"临时频率词文件已创建: {self.temp_freq_file_path}")
+            
+            # 覆盖配置中的频率词文件路径
+            self.ctx.config['FREQUENCY_WORDS_FILE'] = self.temp_freq_file_path
 
     def _check_version_update(self) -> None:
         """检查版本更新"""
@@ -712,11 +760,37 @@ class NewsAnalyzer:
             self.ctx.cleanup()
 
 
+def parse_arguments():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description='TrendRadar 热点分析工具')
+    parser.add_argument('--keywords', type=str, help='关键词列表，用逗号分隔，如："AI,区块链,科技"')
+    parser.add_argument('--config', type=str, default='config/config.yaml', help='配置文件路径')
+    parser.add_argument('--mode', type=str, choices=['incremental', 'current', 'daily'], 
+                       help='报告模式: incremental(增量), current(当前榜单), daily(当日汇总)')
+    parser.add_argument('--once', action='store_true', help='单次执行模式，执行完成后退出')
+    return parser.parse_args()
+
 def main():
     """主程序入口"""
+    args = parse_arguments()
+    
     try:
-        analyzer = NewsAnalyzer()
+        # 如果有命令行关键词，设置环境变量
+        if args.keywords:
+            os.environ['TRENDRADAR_KEYWORDS'] = args.keywords
+        
+        # 如果有模式参数，设置环境变量
+        if args.mode:
+            os.environ['TRENDRADAR_MODE'] = args.mode
+        
+        analyzer = NewsAnalyzer(keywords=args.keywords)
         analyzer.run()
+        
+        # 清理临时文件
+        if hasattr(analyzer, 'temp_freq_file_path') and os.path.exists(analyzer.temp_freq_file_path):
+            os.unlink(analyzer.temp_freq_file_path)
+            print(f"已清理临时文件: {analyzer.temp_freq_file_path}")
+            
     except FileNotFoundError as e:
         print(f"❌ 配置文件错误: {e}")
         print("\n请确保以下文件存在:")
