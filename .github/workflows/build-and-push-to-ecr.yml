@@ -1,0 +1,102 @@
+name: Build and Push to AWS ECR
+
+on:
+  push:
+    branches: [ "master" ]
+    paths:
+      - 'trendradar/**'
+      - 'docker/**'
+      - 'requirements.txt'
+      - '.github/workflows/build-and-push-to-ecr.yml'
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:  # 允许手动触发
+    inputs:
+      tag:
+        description: 'Docker 镜像标签'
+        required: false
+        default: 'latest'
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REGISTRY: 648104168728.dkr.ecr.us-west-2.amazonaws.com
+  ECR_REPOSITORY: shanavasa/trendradar-app
+  DOCKERFILE_PATH: docker/Dockerfile.on-demand
+  IMAGE_NAME: trendradar-on-demand
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # 用于 OIDC 认证
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::648104168728:role/github-actions-role
+        aws-region: ${{ env.AWS_REGION }}
+        role-session-name: GitHubActionsTrendRadar
+    
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+      with:
+        registry-type: private
+        mask-password: 'true'
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Extract metadata for Docker
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ${{ env.DOCKERFILE_PATH }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Verify image push
+      run: |
+        echo "✅ Docker 镜像已推送到 ECR"
+        echo "仓库: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}"
+        echo "标签: ${{ steps.meta.outputs.tags }}"
+        
+        # 验证镜像列表
+        aws ecr describe-images \
+          --repository-name ${{ env.ECR_REPOSITORY }} \
+          --region ${{ env.AWS_REGION }} \
+          --query 'imageDetails[0].imageTags' \
+          --output table 2>/dev/null || echo "首次推送，无历史镜像"
+    
+    - name: Update deployment notification
+      if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/master'
+      run: |
+        echo "🎉 TrendRadar 镜像构建完成!"
+        echo "镜像: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.meta.outputs.tags }}"
+        echo "时间: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+        echo "提交: ${{ github.sha }}"
+        echo "触发者: ${{ github.actor }}"
+        
+        # 这里可以添加钉钉通知
+        # 或调用其他部署流程

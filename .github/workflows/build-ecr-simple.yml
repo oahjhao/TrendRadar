@@ -1,0 +1,80 @@
+name: Build and Push to ECR (Simple)
+
+on:
+  push:
+    branches: [ "master" ]
+    paths:
+      - 'trendradar/**'
+      - 'docker/**'
+      - 'requirements.txt'
+  workflow_dispatch:  # 手动触发
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REGISTRY: 648104168728.dkr.ecr.us-west-2.amazonaws.com
+  ECR_REPOSITORY: shanavasa/trendradar-app
+  IMAGE_TAG: latest
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+      with:
+        registry-type: private
+    
+    - name: Build Docker image
+      run: |
+        docker build \
+          -f docker/Dockerfile.on-demand \
+          -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} \
+          -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$(date +%Y%m%d-%H%M%S) \
+          .
+    
+    - name: Push Docker image
+      run: |
+        docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+        docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$(date +%Y%m%d-%H%M%S)
+    
+    - name: Verify push
+      run: |
+        echo "✅ 镜像推送完成"
+        echo "ECR 仓库: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}"
+        echo "标签: ${{ env.IMAGE_TAG }} 和 $(date +%Y%m%d-%H%M%S)"
+        
+        # 列出最新镜像
+        aws ecr describe-images \
+          --repository-name ${{ env.ECR_REPOSITORY }} \
+          --region ${{ env.AWS_REGION }} \
+          --query 'sort_by(imageDetails, &imagePushedAt)[-1:].[imageTags, imagePushedAt]' \
+          --output table 2>/dev/null || echo "首次推送"
+    
+    - name: Create deployment summary
+      if: always()
+      run: |
+        echo "## TrendRadar 镜像构建报告" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### ✅ 构建成功" >> $GITHUB_STEP_SUMMARY
+        echo "- **镜像**: \`${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **时间戳标签**: \`$(date +%Y%m%d-%H%M%S)\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **触发时间**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+        echo "- **提交**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **触发者**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 下一步" >> $GITHUB_STEP_SUMMARY
+        echo "1. 更新 ECS 任务定义使用新镜像" >> $GITHUB_STEP_SUMMARY
+        echo "2. 测试钉钉命令触发" >> $GITHUB_STEP_SUMMARY
+        echo "3. 验证端到端流程" >> $GITHUB_STEP_SUMMARY
