@@ -18,6 +18,9 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # 必须的，用于 OIDC 认证
+      contents: read   # 必须的，用于代码检出
     
     steps:
     - name: Checkout code
