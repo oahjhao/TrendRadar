@@ -1,0 +1,140 @@
+name: Test IAM Role Configuration
+
+on:
+  workflow_dispatch:  # 仅手动触发
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REGISTRY: 648104168728.dkr.ecr.us-west-2.amazonaws.com
+  ECR_REPOSITORY: shanavasa/trendradar-app
+  ROLE_ARN: arn:aws:iam::648104168728:role/github-actions-trendradar
+
+jobs:
+  test-iam-role:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # 必须的，用于 OIDC
+      contents: read
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials via OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ env.ROLE_ARN }}
+        aws-region: ${{ env.AWS_REGION }}
+        role-session-name: GitHubActionsTest-${{ github.run_id }}
+    
+    - name: Test AWS credentials
+      run: |
+        echo "✅ AWS 凭证配置成功"
+        echo "测试获取调用者身份..."
+        aws sts get-caller-identity
+        
+        echo ""
+        echo "📋 调用者信息:"
+        USER_ID=$(aws sts get-caller-identity --query UserId --output text)
+        ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+        ARN=$(aws sts get-caller-identity --query Arn --output text)
+        
+        echo "用户ID: $USER_ID"
+        echo "账户: $ACCOUNT"
+        echo "ARN: $ARN"
+        
+        # 验证 Role 被正确 Assume
+        if [[ $ARN == *"github-actions-trendradar"* ]]; then
+          echo "✅ 成功 Assume 到正确的 Role"
+        else
+          echo "❌ 未 Assume 到正确的 Role"
+          exit 1
+        fi
+    
+    - name: Test ECR permissions
+      run: |
+        echo ""
+        echo "🔧 测试 ECR 权限..."
+        
+        # 测试 GetAuthorizationToken（基础权限）
+        echo "1. 测试 ECR GetAuthorizationToken..."
+        if aws ecr get-authorization-token --region ${{ env.AWS_REGION }} --query 'authorizationData[].authorizationToken' --output text > /dev/null 2>&1; then
+          echo "   ✅ ECR GetAuthorizationToken 权限正常"
+        else
+          echo "   ❌ ECR GetAuthorizationToken 权限失败"
+          exit 1
+        fi
+        
+        # 测试 DescribeRepositories
+        echo "2. 测试 ECR DescribeRepositories..."
+        if aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
+          echo "   ✅ ECR 仓库存在且可访问"
+          REPO_URI=$(aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} --query 'repositories[0].repositoryUri' --output text --region ${{ env.AWS_REGION }})
+          echo "   仓库 URI: $REPO_URI"
+        else
+          echo "   ⚠️ ECR 仓库可能不存在或无访问权限"
+          echo "   错误代码: $?"
+        fi
+        
+        # 测试列出所有仓库（如果有权限）
+        echo "3. 测试列出 ECR 仓库..."
+        REPO_COUNT=$(aws ecr describe-repositories --region ${{ env.AWS_REGION }} --query 'repositories | length(@)' --output text 2>/dev/null || echo "0")
+        echo "   可访问的仓库数量: $REPO_COUNT"
+    
+    - name: Create test report
+      if: always()
+      run: |
+        echo "## IAM Role 测试报告" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 测试时间: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # 获取测试结果
+        echo "### 🎯 测试结果" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # 检查是否成功 Assume Role
+        if aws sts get-caller-identity --query Arn --output text 2>/dev/null | grep -q "github-actions-trendradar"; then
+          echo "- ✅ **IAM Role Assume 成功**" >> $GITHUB_STEP_SUMMARY
+          ROLE_ARN=$(aws sts get-caller-identity --query Arn --output text 2>/dev/null)
+          echo "  - Role ARN: \`$ROLE_ARN\`" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- ❌ **IAM Role Assume 失败**" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # 检查 ECR 权限
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔐 ECR 权限测试" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if aws ecr get-authorization-token --region ${{ env.AWS_REGION }} --query 'authorizationData[].authorizationToken' --output text > /dev/null 2>&1; then
+          echo "- ✅ **ECR 基础权限正常**" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- ❌ **ECR 基础权限失败**" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # 检查仓库访问
+        if aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} --region ${{ env.AWS_REGION }} > /dev/null 2>&1; then
+          echo "- ✅ **ECR 仓库可访问**" >> $GITHUB_STEP_SUMMARY
+          REPO_URI=$(aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} --query 'repositories[0].repositoryUri' --output text --region ${{ env.AWS_REGION }} 2>/dev/null || echo "未知")
+          echo "  - 仓库 URI: \`$REPO_URI\`" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- ⚠️ **ECR 仓库访问失败**" >> $GITHUB_STEP_SUMMARY
+          echo "  - 可能原因: 仓库不存在或权限不足" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🚀 下一步" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "1. 如果所有测试通过，可以运行完整的构建 workflow" >> $GITHUB_STEP_SUMMARY
+        echo "2. 如果有权限问题，需要调整 IAM Role 策略" >> $GITHUB_STEP_SUMMARY
+        echo "3. 如果仓库不存在，需要创建 ECR 仓库" >> $GITHUB_STEP_SUMMARY
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔧 配置信息" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Role ARN**: \`${{ env.ROLE_ARN }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **AWS 区域**: ${{ env.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **ECR 仓库**: ${{ env.ECR_REPOSITORY }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **触发者**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **运行 ID**: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
