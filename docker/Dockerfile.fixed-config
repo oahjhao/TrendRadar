@@ -34,10 +34,11 @@ ENV PYTHONUNBUFFERED=1 \
     TRENDRADAR_MODE=current \
     TRENDRADAR_ONCE=true
 
-# 创建修复版的入口点脚本
+# 创建修复版的入口点脚本 - 修复参数问题
 RUN echo '#!/bin/bash\n\
 # TrendRadar 修复版按需执行入口点\n\
 # 禁用通知，禁用默认热点词汇\n\
+# 修复参数：使用 --keywords 而不是 --frequency-words\n\
 \n\
 echo "=== TrendRadar 修复版（禁用通知+默认热点） ===\n\
 时间: $(date)\n\
@@ -50,19 +51,28 @@ echo "=== TrendRadar 修复版（禁用通知+默认热点） ===\n\
 - 默认热点: 已禁用 (空频率词文件)\n\
 ==="\n\
 \n\
-# 如果有关键词，创建临时频率词文件\n\
+# 构建参数\n\
+ARGS="--mode ${TRENDRADAR_MODE:-current}"\n\
+\n\
+# 如果设置了 --once\n\
+if [ "${TRENDRADAR_ONCE:-true}" = "true" ]; then\n\
+    ARGS="$ARGS --once"\n\
+fi\n\
+\n\
+# 如果有关键词，使用 --keywords 参数\n\
 if [ -n "$TRENDRADAR_KEYWORDS" ]; then\n\
     echo "使用关键词: $TRENDRADAR_KEYWORDS"\n\
-    echo "$TRENDRADAR_KEYWORDS" | tr "," "\n" > /tmp/keywords.txt\n\
-    FREQUENCY_WORDS_ARG="--frequency-words /tmp/keywords.txt"\n\
+    ARGS="$ARGS --keywords \"$TRENDRADAR_KEYWORDS\""\n\
 else\n\
     echo "未提供关键词，使用空频率词文件"\n\
-    FREQUENCY_WORDS_ARG="--frequency-words /app/config/frequency_words.txt"\n\
+    # 使用空频率词文件\n\
+    ARGS="$ARGS --keywords \"\""\n\
 fi\n\
 \n\
 # 执行 TrendRadar\n\
 cd /app\n\
-python -m trendradar --mode ${TRENDRADAR_MODE:-current} --once $FREQUENCY_WORDS_ARG\n\
+echo "执行命令: python -m trendradar $ARGS"\n\
+python -m trendradar $ARGS\n\
 \n\
 # 获取退出状态\n\
 EXIT_CODE=$?\n\
