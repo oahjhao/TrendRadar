@@ -1,0 +1,102 @@
+name: Build Fixed Config Image
+
+on:
+  workflow_dispatch:  # 手动触发
+  push:
+    branches: [ "master" ]
+    paths:
+      - 'docker/Dockerfile.fixed-config'
+      - 'config/config.yaml'
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REGISTRY: 648104168728.dkr.ecr.us-west-2.amazonaws.com
+  ECR_REPOSITORY: shanavasa/trendradar-app
+  IMAGE_TAG: fixed-config
+
+jobs:
+  build-fixed:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials via OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::648104168728:role/github-actions-trendradar
+        aws-region: ${{ env.AWS_REGION }}
+        role-session-name: GitHubActionsTrendRadarFixed-${{ github.run_id }}
+    
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+      with:
+        registry-type: private
+    
+    - name: Verify config fixes
+      run: |
+        echo "验证配置文件修复..."
+        echo "1. 检查频率词文件:"
+        cat config/frequency_words.txt | wc -l
+        echo "2. 检查通知配置:"
+        grep "enable_notification" config/config.yaml
+        echo "3. 检查钉钉URL:"
+        grep "dingtalk_url" config/config.yaml
+    
+    - name: Build Fixed Config Docker image
+      run: |
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
+        
+        echo "构建修复版镜像..."
+        docker build \
+          -f docker/Dockerfile.fixed-config \
+          -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} \
+          -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:fixed-$TIMESTAMP \
+          .
+        
+        echo "✅ 镜像构建完成"
+    
+    - name: Push Docker image
+      run: |
+        echo "推送镜像到ECR..."
+        docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+        docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:fixed-$TIMESTAMP
+        
+        echo "✅ 镜像推送完成"
+    
+    - name: Verify and list images
+      run: |
+        echo "验证推送结果..."
+        aws ecr describe-images \
+          --repository-name ${{ env.ECR_REPOSITORY }} \
+          --region ${{ env.AWS_REGION }} \
+          --query 'sort_by(imageDetails, &imagePushedAt)[-5:].[imageTags, imagePushedAt]' \
+          --output table 2>/dev/null || echo "检查镜像列表"
+    
+    - name: Create deployment summary
+      if: always()
+      run: |
+        echo "## TrendRadar 修复版镜像构建报告" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🛠️ 修复内容" >> $GITHUB_STEP_SUMMARY
+        echo "- **禁用通知**: \`enable_notification: false\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **清空钉钉URL**: \`dingtalk_url: \"\"\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **禁用默认热点**: 空频率词文件" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### ✅ 构建信息" >> $GITHUB_STEP_SUMMARY
+        echo "- **镜像**: \`${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **时间戳标签**: \`fixed-$TIMESTAMP\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Dockerfile**: \`docker/Dockerfile.fixed-config\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **触发时间**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🚀 下一步操作" >> $GITHUB_STEP_SUMMARY
+        echo "1. **创建新任务定义**: \`trendradar-on-demand:4\` 使用新镜像" >> $GITHUB_STEP_SUMMARY
+        echo "2. **更新ECS服务**: 部署修复版" >> $GITHUB_STEP_SUMMARY
+        echo "3. **测试验证**: 发送钉钉命令测试" >> $GITHUB_STEP_SUMMARY
+        echo "4. **验证需求**: 确认无默认热点推送，只推送检索内容" >> $GITHUB_STEP_SUMMARY

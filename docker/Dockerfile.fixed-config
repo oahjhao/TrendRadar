@@ -1,0 +1,73 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 安装系统依赖
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制项目文件
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 复制项目代码（与现有Dockerfile一致）
+COPY trendradar/ ./trendradar/
+COPY config/ ./config/
+
+# 修复配置文件：禁用通知和默认热点词汇
+RUN echo "" > /app/config/frequency_words.txt && \
+    sed -i 's/enable_notification: true/enable_notification: false/' /app/config/config.yaml && \
+    sed -i 's/dingtalk_url:.*/dingtalk_url: \"\"/' /app/config/config.yaml
+
+# 创建输出目录
+RUN mkdir -p /app/output
+
+# 设置环境变量
+ENV PYTHONUNBUFFERED=1 \
+    CONFIG_PATH=/app/config/config.yaml \
+    FREQUENCY_WORDS_PATH=/app/config/frequency_words.txt \
+    DOCKER_CONTAINER=true \
+    TRENDRADAR_MODE=current \
+    TRENDRADAR_ONCE=true
+
+# 创建修复版的入口点脚本
+RUN echo '#!/bin/bash\n\
+# TrendRadar 修复版按需执行入口点\n\
+# 禁用通知，禁用默认热点词汇\n\
+\n\
+echo "=== TrendRadar 修复版（禁用通知+默认热点） ===\n\
+时间: $(date)\n\
+工作目录: $(pwd)\n\
+关键词: ${TRENDRADAR_KEYWORDS:-未设置}\n\
+模式: ${TRENDRADAR_MODE:-current}\n\
+配置状态:\n\
+- 通知功能: 已禁用 (enable_notification: false)\n\
+- 钉钉推送: 已禁用 (dingtalk_url: \"\")\n\
+- 默认热点: 已禁用 (空频率词文件)\n\
+==="\n\
+\n\
+# 如果有关键词，创建临时频率词文件\n\
+if [ -n "$TRENDRADAR_KEYWORDS" ]; then\n\
+    echo "使用关键词: $TRENDRADAR_KEYWORDS"\n\
+    echo "$TRENDRADAR_KEYWORDS" | tr "," "\n" > /tmp/keywords.txt\n\
+    FREQUENCY_WORDS_ARG="--frequency-words /tmp/keywords.txt"\n\
+else\n\
+    echo "未提供关键词，使用空频率词文件"\n\
+    FREQUENCY_WORDS_ARG="--frequency-words /app/config/frequency_words.txt"\n\
+fi\n\
+\n\
+# 执行 TrendRadar\n\
+cd /app\n\
+python -m trendradar --mode ${TRENDRADAR_MODE:-current} --once $FREQUENCY_WORDS_ARG\n\
+\n\
+# 获取退出状态\n\
+EXIT_CODE=$?\n\
+echo "TrendRadar 执行完成，退出码: $EXIT_CODE"\n\
+exit $EXIT_CODE\n\
+' > /entrypoint.sh && chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
