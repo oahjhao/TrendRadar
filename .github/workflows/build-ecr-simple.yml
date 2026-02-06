@@ -41,22 +41,25 @@ jobs:
     
     - name: Build Docker image
       run: |
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
+        
         docker build \
           -f docker/Dockerfile.on-demand \
           -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} \
-          -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$(date +%Y%m%d-%H%M%S) \
+          -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$TIMESTAMP \
           .
     
     - name: Push Docker image
       run: |
         docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
-        docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$(date +%Y%m%d-%H%M%S)
+        docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$TIMESTAMP
     
     - name: Verify push
       run: |
         echo "✅ 镜像推送完成"
         echo "ECR 仓库: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}"
-        echo "标签: ${{ env.IMAGE_TAG }} 和 $(date +%Y%m%d-%H%M%S)"
+        echo "标签: ${{ env.IMAGE_TAG }} 和 $TIMESTAMP"
         
         # 列出最新镜像
         aws ecr describe-images \
@@ -72,7 +75,7 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### ✅ 构建成功" >> $GITHUB_STEP_SUMMARY
         echo "- **镜像**: \`${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- **时间戳标签**: \`$(date +%Y%m%d-%H%M%S)\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **时间戳标签**: \`$TIMESTAMP\`" >> $GITHUB_STEP_SUMMARY
         echo "- **触发时间**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
         echo "- **提交**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
         echo "- **触发者**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
