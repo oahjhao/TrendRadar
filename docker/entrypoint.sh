@@ -2,13 +2,26 @@
 set -e
 
 # 检查配置文件
-if [ ! -f "/app/config/config.yaml" ] || [ ! -f "/app/config/frequency_words.txt" ]; then
-    echo "❌ 配置文件缺失"
+if [ ! -f "/app/config/config.yaml" ]; then
+    echo "❌ 配置文件 config.yaml 缺失"
+    exit 1
+fi
+
+# 如果没有设置 KEYWORDS 环境变量，则要求 frequency_words.txt 存在
+if [ -z "${KEYWORDS:-}" ] && [ ! -f "/app/config/frequency_words.txt" ]; then
+    echo "❌ 配置文件 frequency_words.txt 缺失（未设置 KEYWORDS 环境变量）"
     exit 1
 fi
 
 # 保存环境变量
 env >> /etc/environment
+
+# 如果设置了 KEYWORDS 环境变量，强制单次执行模式
+if [ -n "${KEYWORDS:-}" ]; then
+    echo "🔑 检测到 KEYWORDS 环境变量: ${KEYWORDS}"
+    echo "🔄 关键词模式：执行一次后退出"
+    exec /usr/local/bin/python -m trendradar
+fi
 
 case "${RUN_MODE:-cron}" in
 "once")

@@ -70,6 +70,8 @@ services:
       - CRON_SCHEDULE=${CRON_SCHEDULE:-15 8,12,16,20 * * *}
       - RUN_MODE=${RUN_MODE:-cron}
       - IMMEDIATE_RUN=${IMMEDIATE_RUN:-true}
+      # 关键词模式（设置后单次执行并退出，逗号分隔，如："白银,AI,存储"）
+      - KEYWORDS=${KEYWORDS:-}
 
   trend-radar-mcp:
     image: wantcat/trendradar-mcp:latest

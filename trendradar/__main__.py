@@ -262,6 +262,10 @@ class NewsAnalyzer:
         self, stats: List[Dict], new_titles: Optional[Dict] = None
     ) -> bool:
         """检查是否有有效的新闻内容"""
+        # KEYWORDS 模式下始终发送通知（用户主动查询，无论是否匹配到都应推送结果）
+        if os.environ.get("KEYWORDS", "").strip():
+            return True
+
         if self.report_mode == "incremental":
             # 增量模式：必须有新增标题才推送
             has_new_titles = bool(

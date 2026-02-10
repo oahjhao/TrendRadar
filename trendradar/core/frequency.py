@@ -15,11 +15,48 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
 
+def _parse_keywords_env() -> Optional[Tuple[List[Dict], List[str], List[str]]]:
+    """
+    从环境变量 KEYWORDS 解析关键词
+
+    KEYWORDS 格式：逗号分隔的关键词列表，每个关键词作为独立的词组。
+    示例：KEYWORDS="白银,存储,AI" 等价于 frequency_words.txt 中写入三个独立关键词。
+
+    Returns:
+        如果 KEYWORDS 环境变量已设置且非空，返回 (词组列表, [], [])；否则返回 None
+    """
+    keywords_env = os.environ.get("KEYWORDS", "").strip()
+    if not keywords_env:
+        return None
+
+    keywords = [kw.strip() for kw in keywords_env.split(",") if kw.strip()]
+    if not keywords:
+        return None
+
+    print(f"从环境变量 KEYWORDS 加载关键词: {keywords}")
+
+    processed_groups = []
+    for kw in keywords:
+        processed_groups.append(
+            {
+                "required": [],
+                "normal": [kw],
+                "group_key": kw,
+                "max_count": 0,
+            }
+        )
+
+    return processed_groups, [], []
+
+
 def load_frequency_words(
     frequency_file: Optional[str] = None,
 ) -> Tuple[List[Dict], List[str], List[str]]:
     """
     加载频率词配置
+
+    优先从环境变量 KEYWORDS（逗号分隔）加载关键词；
+    如果未设置 KEYWORDS，则从配置文件加载。
 
     配置文件格式说明：
     - 每个词组由空行分隔
@@ -39,8 +76,13 @@ def load_frequency_words(
         (词组列表, 词组内过滤词, 全局过滤词)
 
     Raises:
-        FileNotFoundError: 频率词文件不存在
+        FileNotFoundError: 频率词文件不存在（仅在未使用 KEYWORDS 环境变量时）
     """
+    # 优先从环境变量 KEYWORDS 加载
+    env_result = _parse_keywords_env()
+    if env_result is not None:
+        return env_result
+
     if frequency_file is None:
         frequency_file = os.environ.get(
             "FREQUENCY_WORDS_PATH", "config/frequency_words.txt"
