@@ -1,0 +1,82 @@
+{
+  "family": "trendradar-on-demand",
+  "taskRoleArn": "arn:aws:iam::648104168728:role/ecsTaskExecutionRole",
+  "executionRoleArn": "arn:aws:iam::648104168728:role/ecsTaskExecutionRole",
+  "networkMode": "awsvpc",
+  "containerDefinitions": [
+    {
+      "name": "trendradar-on-demand",
+      "image": "648104168728.dkr.ecr.us-west-2.amazonaws.com/shanavasa/trendradar-app:latest",
+      "cpu": 0,
+      "portMappings": [],
+      "essential": true,
+      "environment": [
+        {
+          "name": "TRENDRADAR_MODE",
+          "value": "current"
+        },
+        {
+          "name": "TRENDRADAR_KEYWORDS",
+          "value": ""
+        },
+        {
+          "name": "TRENDRADAR_ONCE",
+          "value": "true"
+        },
+        {
+          "name": "DINGTALK_WEBHOOK",
+          "value": "https://oapi.dingtalk.com/robot/send?access_token=78b9a03ca9592b7efb6653c91d635a8ef7a5848ed2120cbd9dcbb8735ea57980"
+        }
+      ],
+      "mountPoints": [
+        {
+          "sourceVolume": "efs-trendradar-config",
+          "containerPath": "/app/config",
+          "readOnly": false
+        },
+        {
+          "sourceVolume": "efs-trendradar-output",
+          "containerPath": "/app/output",
+          "readOnly": false
+        }
+      ],
+      "volumesFrom": [],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/trendradar-on-demand",
+          "awslogs-region": "us-west-2",
+          "awslogs-stream-prefix": "ecs"
+        },
+        "secretOptions": []
+      },
+      "systemControls": []
+    }
+  ],
+  "volumes": [
+    {
+      "name": "efs-trendradar-config",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "fs-0b84c5c74e468c34b",
+        "rootDirectory": "/trendradar/config"
+      }
+    },
+    {
+      "name": "efs-trendradar-output",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "fs-0b84c5c74e468c34b",
+        "rootDirectory": "/trendradar/output"
+      }
+    }
+  ],
+  "placementConstraints": [],
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "512",
+  "memory": "1024",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  }
+}
